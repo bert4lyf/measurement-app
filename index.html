@@ -449,6 +449,12 @@
                 currentStream.getTracks().forEach(track => track.stop());
             }
             
+            // Stop pose detection if running
+            isMeasuring = false;
+            if (camera) {
+                camera.stop();
+            }
+            
             try {
                 // Get camera stream
                 currentStream = await navigator.mediaDevices.getUserMedia({
@@ -460,6 +466,17 @@
                 });
                 
                 videoElement.srcObject = currentStream;
+                
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => {
+                        resolve();
+                    };
+                });
+                
+                // Set canvas size to match video
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
                 
                 // Initialize camera for pose detection
                 camera = new Camera(videoElement, {
@@ -702,6 +719,30 @@
             }
         }
         
+        // Switch camera function
+        async function switchCamera(newFacingMode) {
+            facingMode = newFacingMode;
+            
+            // Update UI
+            if (facingMode === 'user') {
+                frontCameraBtn.classList.add('active');
+                backCameraBtn.classList.remove('active');
+            } else {
+                backCameraBtn.classList.add('active');
+                frontCameraBtn.classList.remove('active');
+            }
+            
+            // Reset measurement state
+            isMeasuring = false;
+            startBtn.disabled = false;
+            captureBtn.disabled = true;
+            
+            // Reinitialize camera
+            await initCamera();
+            
+            statusMessage.textContent = "Camera switched! Click 'Start Measurement' to begin.";
+        }
+        
         // Event listeners
         startBtn.addEventListener('click', () => {
             isMeasuring = true;
@@ -729,17 +770,11 @@
         downloadBtn.addEventListener('click', downloadResults);
         
         frontCameraBtn.addEventListener('click', () => {
-            facingMode = 'user';
-            frontCameraBtn.classList.add('active');
-            backCameraBtn.classList.remove('active');
-            initCamera();
+            switchCamera('user');
         });
         
         backCameraBtn.addEventListener('click', () => {
-            facingMode = 'environment';
-            backCameraBtn.classList.add('active');
-            frontCameraBtn.classList.remove('active');
-            initCamera();
+            switchCamera('environment');
         });
         
         // Set initial active camera button
@@ -749,12 +784,6 @@
         initPose().catch(error => {
             console.error("Error initializing pose detection:", error);
             statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
-        });
-        
-        // Adjust canvas size to match video
-        videoElement.addEventListener('loadedmetadata', () => {
-            canvasElement.width = videoElement.videoWidth;
-            canvasElement.height = videoElement.videoHeight;
         });
     </script>
 </body>
