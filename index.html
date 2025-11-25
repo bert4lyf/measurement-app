@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Melvin's Body Measurement App 😉</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: #f5f7fa;
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: white;
+            border: 1px solid #e1e5eb;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            color: #7f8c8d;
+        }
+        
+        .app-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .camera-section {
+            flex: 1;
+            min-width: 300px;
+            background: white;
+            border: 1px solid #e1e5eb;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .results-section {
+            flex: 1;
+            min-width: 300px;
+            background: white;
+            border: 1px solid #e1e5eb;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e1e5eb;
+            color: #2c3e50;
+        }
+        
+        #videoElement {
+            width: 100%;
+            background: #000;
+        }
+        
+        #canvasElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        button {
+            padding: 10px 15px;
+            border: none;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex: 1;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button#startBtn {
+            background: #3498db;
+        }
+        
+        button#captureBtn {
+            background: #2ecc71;
+        }
+        
+        button#resetBtn {
+            background: #e74c3c;
+        }
+        
+        button#calibrateBtn {
+            background: #f39c12;
+        }
+        
+        .measurement-list {
+            list-style-type: none;
+        }
+        
+        .measurement-item {
+            background: #f8f9fa;
+            margin-bottom: 10px;
+            padding: 15px;
+            border: 1px solid #e1e5eb;
+            display: flex;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+        }
+        
+        .measurement-item:hover {
+            background: #edf2f7;
+        }
+        
+        .measurement-name {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .measurement-value {
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 5px 10px;
+            border: 1px solid #e1e5eb;
+            color: #2c3e50;
+        }
+        
+        .instructions {
+            background: white;
+            border: 1px solid #e1e5eb;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .instructions h2 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+            line-height: 1.6;
+            color: #555;
+        }
+        
+        .instructions li {
+            margin-bottom: 10px;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #e1e5eb;
+            background: #f8f9fa;
+            color: #555;
+        }
+        
+        .calibration {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        input[type="number"] {
+            padding: 8px;
+            border: 1px solid #e1e5eb;
+            width: 80px;
+        }
+        
+        .captured-image-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        #capturedImage {
+            max-width: 100%;
+            border: 1px solid #e1e5eb;
+        }
+        
+        .results-display {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border: 1px solid #e1e5eb;
+        }
+        
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .calibration {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Get In Frame</h1>
+            <p class="subtitle">Capture your pose and get accurate body measurements</p>
+        </header>
+        
+        <div class="app-container">
+            <div class="camera-section">
+                <h2 class="section-title">Camera Feed</h2>
+                <div class="video-container">
+                    <video id="videoElement" autoplay playsinline></video>
+                    <canvas id="canvasElement"></canvas>
+                </div>
+                
+                <div class="calibration">
+                    <label for="heightInput">Your Height (cm) "optional":</label>
+                    <input type="number" id="heightInput" min="100" max="250" value="170">
+                    <button id="calibrateBtn">Calibrate</button>
+                </div>
+                
+                <div class="controls">
+                    <button id="startBtn">Start Measurement</button>
+                    <button id="captureBtn" disabled>Capture Photo</button>
+                    <button id="resetBtn">Reset</button>
+                </div>
+                
+                <div class="status" id="statusMessage">
+                    Please allow camera access and click "Start Measurement"
+                </div>
+                
+                <div class="captured-image-container">
+                    <h3>Captured Photo</h3>
+                    <img id="capturedImage" style="display: none;">
+                </div>
+            </div>
+            
+            <div class="results-section">
+                <h2 class="section-title">Body Measurements</h2>
+                <ul class="measurement-list" id="measurementList">
+                    <!-- Measurements will be populated here -->
+                </ul>
+                
+                <div class="results-display" id="resultsDisplay" style="display: none;">
+                    <h3>Final Results</h3>
+                    <div id="finalResults"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h2><strong>Yo Nigga, This How You Use It!</strong></h2>
+            <ol>
+                <li>Allow camera access on the browser, I wont spy on you</li>
+                <li>Enter your actual height for calibration "Not compulsory" </li>
+                <li>Stand about 2 meters (6 feet) from the camera in a well-lit area</li>
+                <li>Make sure your full body is visible in the frame</li>
+                <li>Assume a T-pose (arms extended to the sides) for accurate measurements</li>
+                <li>Click "Start Measurement" to begin capturing</li>
+                <li>Click "Capture Photo" to take a snapshot with measurements</li>
+                <li>Viola! View your final results in the right panel</li>
+                <li>Boom! Boom!</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // DOM elements
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const calibrateBtn = document.getElementById('calibrateBtn');
+        const heightInput = document.getElementById('heightInput');
+        const statusMessage = document.getElementById('statusMessage');
+        const measurementList = document.getElementById('measurementList');
+        const capturedImage = document.getElementById('capturedImage');
+        const resultsDisplay = document.getElementById('resultsDisplay');
+        const finalResults = document.getElementById('finalResults');
+        
+        // Pose estimation variables
+        let pose = null;
+        let camera = null;
+        let isMeasuring = false;
+        let calibrationFactor = 1;
+        let measurements = {};
+        let lastMeasurementTime = 0;
+        const measurementInterval = 200; // Process measurements every 200ms for better performance
+        
+        // Initialize MediaPipe Pose with optimized settings
+        async function initPose() {
+            pose = new Pose({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+                }
+            });
+            
+            pose.setOptions({
+                modelComplexity: 0, // Reduced complexity for better performance
+                smoothLandmarks: true,
+                enableSegmentation: false,
+                smoothSegmentation: false, // Disabled for performance
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.5
+            });
+            
+            pose.onResults(onPoseResults);
+            
+            // Initialize camera with lower resolution for better performance
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    const currentTime = Date.now();
+                    if (isMeasuring && currentTime - lastMeasurementTime > measurementInterval) {
+                        lastMeasurementTime = currentTime;
+                        await pose.send({image: videoElement});
+                    }
+                },
+                width: 480, // Reduced resolution for better performance
+                height: 640
+            });
+            
+            await camera.start();
+        }
+        
+        // Process pose results
+        function onPoseResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.poseLandmarks) {
+                // Draw pose landmarks with simplified rendering for performance
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {
+                    color: '#3498db',
+                    lineWidth: 2 // Thinner lines for better performance
+                });
+                
+                // Only draw key landmarks for better performance
+                const keyLandmarks = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+                drawLandmarks(canvasCtx, 
+                    results.poseLandmarks.filter((_, index) => keyLandmarks.includes(index)), 
+                    {
+                        color: '#e74c3c',
+                        lineWidth: 1,
+                        radius: 2 // Smaller points for better performance
+                    }
+                );
+                
+                // Calculate measurements
+                calculateMeasurements(results.poseLandmarks);
+                updateMeasurementDisplay();
+            }
+            
+            canvasCtx.restore();
+        }
+        
+        // Calculate body measurements from pose landmarks
+        function calculateMeasurements(landmarks) {
+            if (!landmarks) return;
+            
+            // Get key landmarks
+            const leftShoulder = landmarks[11];
+            const rightShoulder = landmarks[12];
+            const leftHip = landmarks[23];
+            const rightHip = landmarks[24];
+            const leftElbow = landmarks[13];
+            const rightElbow = landmarks[14];
+            const leftWrist = landmarks[15];
+            const rightWrist = landmarks[16];
+            const leftKnee = landmarks[25];
+            const rightKnee = landmarks[26];
+            const leftAnkle = landmarks[27];
+            const rightAnkle = landmarks[28];
+            const nose = landmarks[0];
+            
+            // Calculate distances in pixels
+            const shoulderWidth = calculateDistance(leftShoulder, rightShoulder);
+            const hipWidth = calculateDistance(leftHip, rightHip);
+            const leftArmLength = calculateDistance(leftShoulder, leftElbow) + calculateDistance(leftElbow, leftWrist);
+            const rightArmLength = calculateDistance(rightShoulder, rightElbow) + calculateDistance(rightElbow, rightWrist);
+            const leftLegLength = calculateDistance(leftHip, leftKnee) + calculateDistance(leftKnee, leftAnkle);
+            const rightLegLength = calculateDistance(rightHip, rightKnee) + calculateDistance(rightKnee, rightAnkle);
+            const torsoLength = calculateDistance(
+                {x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2},
+                {x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2}
+            );
+            const height = calculateDistance(nose, leftAnkle) * 1.1; // Approximation
+            
+            // Convert to centimeters using calibration factor
+            measurements = {
+                "Height": height * calibrationFactor,
+                "Shoulder Width": shoulderWidth * calibrationFactor,
+                "Hip Width": hipWidth * calibrationFactor,
+                "Left Arm Length": leftArmLength * calibrationFactor,
+                "Right Arm Length": rightArmLength * calibrationFactor,
+                "Left Leg Length": leftLegLength * calibrationFactor,
+                "Right Leg Length": rightLegLength * calibrationFactor,
+                "Torso Length": torsoLength * calibrationFactor
+            };
+        }
+        
+        // Calculate Euclidean distance between two points
+        function calculateDistance(point1, point2) {
+            return Math.sqrt(
+                Math.pow(point1.x - point2.x, 2) + 
+                Math.pow(point1.y - point2.y, 2)
+            );
+        }
+        
+        // Update the measurement display
+        function updateMeasurementDisplay() {
+            measurementList.innerHTML = '';
+            
+            for (const [name, value] of Object.entries(measurements)) {
+                const listItem = document.createElement('li');
+                listItem.className = 'measurement-item';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'measurement-name';
+                nameSpan.textContent = name;
+                
+                const valueSpan = document.createElement('span');
+                valueSpan.className = 'measurement-value';
+                valueSpan.textContent = value.toFixed(1) + ' cm';
+                
+                listItem.appendChild(nameSpan);
+                listItem.appendChild(valueSpan);
+                measurementList.appendChild(listItem);
+            }
+        }
+        
+        // Capture photo with measurements
+        function capturePhoto() {
+            // Create a temporary canvas to draw the final image
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasElement.width;
+            tempCanvas.height = canvasElement.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw the video frame
+            tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Draw the pose landmarks
+            tempCtx.drawImage(canvasElement, 0, 0);
+            
+            // Add measurement text
+            tempCtx.font = '14px Arial';
+            tempCtx.fillStyle = '#2c3e50';
+            tempCtx.fillText('Body Measurements:', 10, 20);
+            
+            let yPos = 40;
+            for (const [name, value] of Object.entries(measurements)) {
+                tempCtx.fillText(`${name}: ${value.toFixed(1)} cm`, 10, yPos);
+                yPos += 20;
+            }
+            
+            // Display the captured image
+            capturedImage.src = tempCanvas.toDataURL('image/png');
+            capturedImage.style.display = 'block';
+            
+            // Show final results
+            showFinalResults();
+            
+            statusMessage.textContent = "Photo captured! Check your results below.";
+        }
+        
+        // Show final results in a formatted display
+        function showFinalResults() {
+            resultsDisplay.style.display = 'block';
+            finalResults.innerHTML = '';
+            
+            for (const [name, value] of Object.entries(measurements)) {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'measurement-item';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'measurement-name';
+                nameSpan.textContent = name;
+                
+                const valueSpan = document.createElement('span');
+                valueSpan.className = 'measurement-value';
+                valueSpan.textContent = value.toFixed(1) + ' cm';
+                
+                resultItem.appendChild(nameSpan);
+                resultItem.appendChild(valueSpan);
+                finalResults.appendChild(resultItem);
+            }
+        }
+        
+        // Calibrate based on user's actual height
+        function calibrate() {
+            const actualHeight = parseFloat(heightInput.value);
+            if (isNaN(actualHeight) || actualHeight < 100 || actualHeight > 250) {
+                statusMessage.textContent = "Please enter a valid height between 100 and 250 cm";
+                return;
+            }
+            
+            if (measurements.Height && measurements.Height > 0) {
+                calibrationFactor = actualHeight / measurements.Height;
+                statusMessage.textContent = "Calibration completed! Measurements will now be more accurate.";
+                calculateMeasurements(); // Recalculate with new calibration
+                updateMeasurementDisplay();
+            } else {
+                statusMessage.textContent = "Please start measurement first to get initial readings";
+            }
+        }
+        
+        // Event listeners
+        startBtn.addEventListener('click', () => {
+            isMeasuring = true;
+            statusMessage.textContent = "Measuring... Click 'Capture Photo' when ready";
+            startBtn.disabled = true;
+            captureBtn.disabled = false;
+        });
+        
+        captureBtn.addEventListener('click', capturePhoto);
+        
+        resetBtn.addEventListener('click', () => {
+            isMeasuring = false;
+            measurements = {};
+            updateMeasurementDisplay();
+            capturedImage.style.display = 'none';
+            resultsDisplay.style.display = 'none';
+            statusMessage.textContent = "Measurement reset. Click 'Start Measurement' to begin again.";
+            startBtn.disabled = false;
+            captureBtn.disabled = true;
+        });
+        
+        calibrateBtn.addEventListener('click', calibrate);
+        
+        // Initialize the application
+        initPose().then(() => {
+            statusMessage.textContent = "Camera ready! Click 'Start Measurement' to begin.";
+        }).catch(error => {
+            console.error("Error initializing pose detection:", error);
+            statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
+        });
+        
+        // Adjust canvas size to match video
+        videoElement.addEventListener('loadedmetadata', () => {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+        });
+    </script>
+</body>
+</html>
