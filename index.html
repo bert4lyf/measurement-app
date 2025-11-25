@@ -244,6 +244,7 @@
         .captured-image-container {
             margin-top: 20px;
             text-align: center;
+            width: 100%;
         }
         
         #capturedImage {
@@ -274,6 +275,12 @@
         
         .client-name-input {
             flex: 1;
+        }
+        
+        .captured-image-wrapper {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
         }
         
         @media (max-width: 768px) {
@@ -339,7 +346,9 @@
                 
                 <div class="captured-image-container">
                     <h3>Captured Photo</h3>
-                    <img id="capturedImage" style="display: none;">
+                    <div class="captured-image-wrapper">
+                        <img id="capturedImage" style="display: none;">
+                    </div>
                 </div>
                 
                 <div class="download-section" id="downloadSection">
@@ -413,23 +422,15 @@
         let measurements = {};
         let lastMeasurementTime = 0;
         let currentStream = null;
-        let facingMode = 'environment'; // Default to back camera for mobile
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        let usingBackCamera = isMobile; // Use back camera on mobile by default
         const measurementInterval = 200; // Process measurements every 200ms for better performance
         
-        // Check if device is mobile
-        function isMobileDevice() {
-            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        }
-        
         // Show camera selection for desktop devices only
-        if (!isMobileDevice()) {
+        if (!isMobile) {
             cameraSelection.style.display = 'flex';
-            // Default to front camera on desktop
-            facingMode = 'user';
             frontCameraBtn.classList.add('active');
         } else {
-            // Mobile devices use back camera only
-            facingMode = 'environment';
             cameraSelection.style.display = 'none';
         }
         
@@ -442,10 +443,10 @@
             });
             
             pose.setOptions({
-                modelComplexity: 0, // Reduced complexity for better performance
+                modelComplexity: 1, // Increased for better landmark detection
                 smoothLandmarks: true,
                 enableSegmentation: false,
-                smoothSegmentation: false, // Disabled for performance
+                smoothSegmentation: false,
                 minDetectionConfidence: 0.7,
                 minTrackingConfidence: 0.5
             });
@@ -470,22 +471,42 @@
             }
             
             try {
+                let constraints = {};
+                
+                if (isMobile) {
+                    // On mobile, always use back camera
+                    constraints = {
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        }
+                    };
+                } else {
+                    // On desktop, use selected camera
+                    constraints = {
+                        video: { 
+                            facingMode: usingBackCamera ? 'environment' : 'user',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        }
+                    };
+                }
+                
                 // Get camera stream
-                currentStream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: facingMode,
-                        width: { ideal: 480 }, // Reduced resolution for better performance
-                        height: { ideal: 640 }
-                    }
-                });
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 
                 videoElement.srcObject = currentStream;
                 
                 // Wait for video to be ready
                 await new Promise((resolve) => {
-                    videoElement.onloadedmetadata = () => {
+                    if (videoElement.readyState >= 2) {
                         resolve();
-                    };
+                    } else {
+                        videoElement.onloadedmetadata = () => {
+                            resolve();
+                        };
+                    }
                 });
                 
                 // Set canvas size to match video
@@ -507,18 +528,42 @@
                 statusMessage.textContent = "Camera's ready bruv! Click 'Start Measurement' to begin.";
             } catch (error) {
                 console.error("Error accessing camera:", error);
-                statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
                 
                 // Try fallback to any available camera
-                if (error.name === 'OverconstrainedError') {
+                try {
                     statusMessage.textContent = "Requested camera not available. Trying any available camera...";
-                    try {
-                        facingMode = { exact: facingMode }; // Remove constraint
-                        await initCamera();
-                    } catch (fallbackError) {
-                        console.error("Fallback camera error:", fallbackError);
-                        statusMessage.textContent = "Error: Could not access any camera. Please check permissions.";
-                    }
+                    let fallbackConstraints = { video: true };
+                    currentStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                    videoElement.srcObject = currentStream;
+                    
+                    await new Promise((resolve) => {
+                        if (videoElement.readyState >= 2) {
+                            resolve();
+                        } else {
+                            videoElement.onloadedmetadata = () => {
+                                resolve();
+                            };
+                        }
+                    });
+                    
+                    canvasElement.width = videoElement.videoWidth;
+                    canvasElement.height = videoElement.videoHeight;
+                    
+                    camera = new Camera(videoElement, {
+                        onFrame: async () => {
+                            const currentTime = Date.now();
+                            if (isMeasuring && currentTime - lastMeasurementTime > measurementInterval) {
+                                lastMeasurementTime = currentTime;
+                                await pose.send({image: videoElement});
+                            }
+                        }
+                    });
+                    
+                    await camera.start();
+                    statusMessage.textContent = "Camera's ready bruv! Click 'Start Measurement' to begin.";
+                } catch (fallbackError) {
+                    console.error("Fallback camera error:", fallbackError);
+                    statusMessage.textContent = "Error: Could not access any camera. Please check permissions.";
                 }
             }
         }
@@ -535,7 +580,7 @@
                 // Draw pose landmarks with simplified rendering for performance
                 drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {
                     color: '#3498db',
-                    lineWidth: 2 // Thinner lines for better performance
+                    lineWidth: 2
                 });
                 
                 // Only draw key landmarks for better performance
@@ -545,7 +590,7 @@
                     {
                         color: '#e74c3c',
                         lineWidth: 1,
-                        radius: 2 // Smaller points for better performance
+                        radius: 2
                     }
                 );
                 
@@ -587,12 +632,21 @@
                 {x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2},
                 {x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2}
             );
+            
+            // Calculate chest circumference (approximation based on shoulder width and torso)
+            const chestCircumference = (shoulderWidth * 2.5) * calibrationFactor;
+            
+            // Calculate waist circumference (approximation based on hip width and torso)
+            const waistCircumference = (hipWidth * 2.3) * calibrationFactor;
+            
             const height = calculateDistance(nose, leftAnkle) * 1.1; // Approximation
             
             // Convert to centimeters using calibration factor
             measurements = {
                 "Height": height * calibrationFactor,
                 "Shoulder Width": shoulderWidth * calibrationFactor,
+                "Chest Circumference": chestCircumference,
+                "Waist Circumference": waistCircumference,
                 "Hip Width": hipWidth * calibrationFactor,
                 "Left Arm Length": leftArmLength * calibrationFactor,
                 "Right Arm Length": rightArmLength * calibrationFactor,
@@ -637,32 +691,47 @@
             // Create a temporary canvas to draw the final image
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = canvasElement.width;
-            tempCanvas.height = canvasElement.height;
+            tempCanvas.height = canvasElement.height + 200; // Extra space for text
             const tempCtx = tempCanvas.getContext('2d');
+            
+            // Fill with white background
+            tempCtx.fillStyle = 'white';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
             
             // Draw the video frame (not mirrored for final image)
             tempCtx.save();
             tempCtx.translate(tempCanvas.width, 0);
             tempCtx.scale(-1, 1);
-            tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height - 200);
             tempCtx.restore();
             
             // Draw the pose landmarks (not mirrored for final image)
             tempCtx.save();
             tempCtx.translate(tempCanvas.width, 0);
             tempCtx.scale(-1, 1);
-            tempCtx.drawImage(canvasElement, 0, 0);
+            tempCtx.drawImage(canvasElement, 0, 0, tempCanvas.width, tempCanvas.height - 200);
             tempCtx.restore();
             
-            // Add measurement text
-            tempCtx.font = '14px Arial';
+            // Add measurement text with larger font and better spacing
             tempCtx.fillStyle = '#2c3e50';
-            tempCtx.fillText('Body Measurements:', 10, 20);
+            tempCtx.font = 'bold 18px Arial';
+            tempCtx.fillText('Body Measurements:', 20, tempCanvas.height - 180);
             
-            let yPos = 40;
+            tempCtx.font = '16px Arial';
+            let yPos = tempCanvas.height - 150;
+            let col1X = 20;
+            let col2X = tempCanvas.width / 2 + 20;
+            let itemsInCol1 = 0;
+            let maxItemsPerCol = Math.ceil(Object.keys(measurements).length / 2);
+            
             for (const [name, value] of Object.entries(measurements)) {
-                tempCtx.fillText(`${name}: ${value.toFixed(1)} cm`, 10, yPos);
-                yPos += 20;
+                if (itemsInCol1 < maxItemsPerCol) {
+                    tempCtx.fillText(`${name}: ${value.toFixed(1)} cm`, col1X, yPos);
+                    itemsInCol1++;
+                } else {
+                    tempCtx.fillText(`${name}: ${value.toFixed(1)} cm`, col2X, yPos - (maxItemsPerCol * 25));
+                }
+                yPos += 25;
             }
             
             // Display the captured image
@@ -706,7 +775,7 @@
             // Create a temporary canvas for the downloadable image
             const downloadCanvas = document.createElement('canvas');
             downloadCanvas.width = canvasElement.width;
-            downloadCanvas.height = canvasElement.height + 100; // Extra space for text
+            downloadCanvas.height = canvasElement.height + 200; // Extra space for text
             const downloadCtx = downloadCanvas.getContext('2d');
             
             // Fill background
@@ -714,19 +783,7 @@
             downloadCtx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
             
             // Draw the captured image (not mirrored for download)
-            downloadCtx.drawImage(capturedImage, 0, 0, canvasElement.width, canvasElement.height);
-            
-            // Add client name and measurements
-            downloadCtx.fillStyle = '#2c3e50';
-            downloadCtx.font = 'bold 16px Arial';
-            downloadCtx.fillText(`Client: ${clientName}`, 10, canvasElement.height + 20);
-            
-            downloadCtx.font = '14px Arial';
-            let yPos = canvasElement.height + 40;
-            for (const [name, value] of Object.entries(measurements)) {
-                downloadCtx.fillText(`${name}: ${value.toFixed(1)} cm`, 10, yPos);
-                yPos += 20;
-            }
+            downloadCtx.drawImage(capturedImage, 0, 0, downloadCanvas.width, downloadCanvas.height);
             
             // Create download link
             const link = document.createElement('a');
@@ -756,18 +813,18 @@
         }
         
         // Switch camera function (desktop only)
-        async function switchCamera(newFacingMode) {
-            if (isMobileDevice()) return; // Skip on mobile
+        async function switchCamera(useBackCamera) {
+            if (isMobile) return; // Skip on mobile
             
-            facingMode = newFacingMode;
+            usingBackCamera = useBackCamera;
             
             // Update UI
-            if (facingMode === 'user') {
-                frontCameraBtn.classList.add('active');
-                backCameraBtn.classList.remove('active');
-            } else {
+            if (usingBackCamera) {
                 backCameraBtn.classList.add('active');
                 frontCameraBtn.classList.remove('active');
+            } else {
+                frontCameraBtn.classList.add('active');
+                backCameraBtn.classList.remove('active');
             }
             
             // Reset measurement state
@@ -808,11 +865,11 @@
         downloadBtn.addEventListener('click', downloadResults);
         
         frontCameraBtn.addEventListener('click', () => {
-            switchCamera('user');
+            switchCamera(false);
         });
         
         backCameraBtn.addEventListener('click', () => {
-            switchCamera('environment');
+            switchCamera(true);
         });
         
         // Initialize the application
