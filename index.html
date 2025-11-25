@@ -84,7 +84,6 @@
         #videoElement {
             width: 100%;
             background: #000;
-            transform: scaleX(-1); /* Mirror the video for more natural feel */
         }
         
         #canvasElement {
@@ -93,7 +92,6 @@
             left: 0;
             width: 100%;
             height: 100%;
-            transform: scaleX(-1); /* Mirror the canvas to match video */
         }
         
         .video-container {
@@ -224,20 +222,13 @@
             width: 80px;
         }
         
-        .camera-selection {
-            display: flex;
-            gap: 10px;
+        .camera-info {
             margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-        
-        .camera-btn {
-            flex: 1;
-            background: #95a5a6;
-        }
-        
-        .camera-btn.active {
-            background: #3498db;
+            padding: 10px;
+            background: #e8f4fd;
+            border: 1px solid #3498db;
+            text-align: center;
+            color: #2c3e50;
         }
         
         .captured-image-container {
@@ -284,13 +275,9 @@
                 font-size: 2rem;
             }
             
-            .calibration, .camera-selection {
+            .calibration {
                 flex-direction: column;
                 align-items: flex-start;
-            }
-            
-            .camera-btn {
-                width: 100%;
             }
         }
     </style>
@@ -306,9 +293,8 @@
             <div class="camera-section">
                 <h2 class="section-title">Camera Feed</h2>
                 
-                <div class="camera-selection" id="cameraSelection">
-                    <button class="camera-btn" id="frontCameraBtn">Front Camera</button>
-                    <button class="camera-btn" id="backCameraBtn">Back Camera</button>
+                <div class="camera-info" id="cameraInfo">
+                    <!-- Camera info will be displayed here -->
                 </div>
                 
                 <div class="video-container">
@@ -364,7 +350,7 @@
             <h2><strong>Yo Nigga, This How You Use It!</strong></h2>
             <ol>
                 <li>Allow camera access on the browser, I wont spy on you</li>
-                <li>Select front or back camera</li>
+                <li>On mobile, back camera is automatically selected for better full-body capture</li>
                 <li>Enter your actual height for calibration "Not compulsory" </li>
                 <li>Stand about 2 meters (6 feet) from the camera in a well-lit area</li>
                 <li>Make sure your full body is visible in the frame</li>
@@ -396,9 +382,7 @@
         const resultsDisplay = document.getElementById('resultsDisplay');
         const finalResults = document.getElementById('finalResults');
         const downloadSection = document.getElementById('downloadSection');
-        const cameraSelection = document.getElementById('cameraSelection');
-        const frontCameraBtn = document.getElementById('frontCameraBtn');
-        const backCameraBtn = document.getElementById('backCameraBtn');
+        const cameraInfo = document.getElementById('cameraInfo');
         
         // Pose estimation variables
         let pose = null;
@@ -407,8 +391,12 @@
         let measurements = {};
         let lastMeasurementTime = 0;
         let currentStream = null;
-        let currentFacingMode = 'user'; // Default to front camera
         const measurementInterval = 200; // Process measurements every 200ms for better performance
+        
+        // Check if device is mobile
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
         
         // Initialize MediaPipe Pose with optimized settings
         async function initPose() {
@@ -433,7 +421,7 @@
             await initCamera();
         }
         
-        // Initialize camera with specified facing mode
+        // Initialize camera - automatically use back camera on mobile
         async function initCamera() {
             // Stop any existing stream
             if (currentStream) {
@@ -441,14 +429,25 @@
             }
             
             try {
-                // Get camera stream
-                currentStream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: currentFacingMode,
-                        width: { ideal: 480 }, // Reduced resolution for better performance
-                        height: { ideal: 640 }
+                // On mobile devices, automatically use back camera
+                // On desktop, let the browser choose the default camera
+                const constraints = {
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
                     }
-                });
+                };
+                
+                // For mobile devices, try to get the back camera
+                if (isMobileDevice()) {
+                    constraints.video.facingMode = { ideal: 'environment' };
+                    cameraInfo.textContent = "Using back camera for full-body capture";
+                } else {
+                    cameraInfo.textContent = "Using default camera";
+                }
+                
+                // Get camera stream
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 
                 videoElement.srcObject = currentStream;
                 
@@ -471,7 +470,39 @@
                 }
             } catch (error) {
                 console.error("Error accessing camera:", error);
-                statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
+                
+                // If back camera fails on mobile, try any camera
+                if (isMobileDevice() && error.name === 'OverconstrainedError') {
+                    cameraInfo.textContent = "Back camera not available, using available camera";
+                    statusMessage.textContent = "Trying with available camera...";
+                    
+                    try {
+                        const fallbackConstraints = {
+                            video: {
+                                width: { ideal: 640 },
+                                height: { ideal: 480 }
+                            }
+                        };
+                        
+                        currentStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                        videoElement.srcObject = currentStream;
+                        
+                        await new Promise((resolve) => {
+                            videoElement.onloadedmetadata = () => {
+                                resolve();
+                            };
+                        });
+                        
+                        canvasElement.width = videoElement.videoWidth;
+                        canvasElement.height = videoElement.videoHeight;
+                        statusMessage.textContent = "Camera ready! Click 'Start Measurement' to begin.";
+                    } catch (fallbackError) {
+                        console.error("Fallback camera error:", fallbackError);
+                        statusMessage.textContent = "Error: Could not access any camera. Please check permissions.";
+                    }
+                } else {
+                    statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
+                }
             }
         }
         
@@ -503,11 +534,7 @@
         function onPoseResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            
-            // Draw the video frame (mirrored)
-            canvasCtx.scale(-1, 1);
-            canvasCtx.drawImage(results.image, -canvasElement.width, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.scale(-1, 1); // Reset scale
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
             
             if (results.poseLandmarks) {
                 // Draw pose landmarks with simplified rendering for performance
@@ -618,10 +645,10 @@
             tempCanvas.height = canvasElement.height;
             const tempCtx = tempCanvas.getContext('2d');
             
-            // Draw the video frame (unmirrored for saved image)
+            // Draw the video frame
             tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
             
-            // Draw the pose landmarks (unmirrored)
+            // Draw the pose landmarks
             tempCtx.drawImage(canvasElement, 0, 0);
             
             // Add measurement text
@@ -725,22 +752,6 @@
             }
         }
         
-        // Switch to front camera
-        async function switchToFrontCamera() {
-            currentFacingMode = 'user';
-            frontCameraBtn.classList.add('active');
-            backCameraBtn.classList.remove('active');
-            await initCamera();
-        }
-        
-        // Switch to back camera
-        async function switchToBackCamera() {
-            currentFacingMode = 'environment';
-            backCameraBtn.classList.add('active');
-            frontCameraBtn.classList.remove('active');
-            await initCamera();
-        }
-        
         // Event listeners
         startBtn.addEventListener('click', () => {
             isMeasuring = true;
@@ -768,13 +779,6 @@
         calibrateBtn.addEventListener('click', calibrate);
         
         downloadBtn.addEventListener('click', downloadResults);
-        
-        frontCameraBtn.addEventListener('click', switchToFrontCamera);
-        
-        backCameraBtn.addEventListener('click', switchToBackCamera);
-        
-        // Set initial active camera button
-        frontCameraBtn.classList.add('active');
         
         // Initialize the application
         initPose().catch(error => {
