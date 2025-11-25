@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Melvin's Body Measurement App 😉</title>
+    <title>Get In Frame</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
@@ -141,6 +141,10 @@
             background: #f39c12;
         }
         
+        button#downloadBtn {
+            background: #9b59b6;
+        }
+        
         .measurement-list {
             list-style-type: none;
         }
@@ -212,10 +216,26 @@
             flex-wrap: wrap;
         }
         
-        input[type="number"] {
+        input[type="number"], input[type="text"] {
             padding: 8px;
             border: 1px solid #e1e5eb;
             width: 80px;
+        }
+        
+        .camera-selection {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .camera-btn {
+            flex: 1;
+            background: #95a5a6;
+        }
+        
+        .camera-btn.active {
+            background: #3498db;
         }
         
         .captured-image-container {
@@ -235,6 +255,24 @@
             border: 1px solid #e1e5eb;
         }
         
+        .download-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border: 1px solid #e1e5eb;
+            display: none;
+        }
+        
+        .download-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .client-name-input {
+            flex: 1;
+        }
+        
         @media (max-width: 768px) {
             .app-container {
                 flex-direction: column;
@@ -244,9 +282,13 @@
                 font-size: 2rem;
             }
             
-            .calibration {
+            .calibration, .camera-selection {
                 flex-direction: column;
                 align-items: flex-start;
+            }
+            
+            .camera-btn {
+                width: 100%;
             }
         }
     </style>
@@ -254,13 +296,19 @@
 <body>
     <div class="container">
         <header>
-            <h1>Get In Frame Bruv</h1>
+            <h1>Get In Frame</h1>
             <p class="subtitle">Capture your pose and get accurate body measurements</p>
         </header>
         
         <div class="app-container">
             <div class="camera-section">
                 <h2 class="section-title">Camera Feed</h2>
+                
+                <div class="camera-selection" id="cameraSelection" style="display: none;">
+                    <button class="camera-btn" id="frontCameraBtn">Front Camera</button>
+                    <button class="camera-btn" id="backCameraBtn">Back Camera</button>
+                </div>
+                
                 <div class="video-container">
                     <video id="videoElement" autoplay playsinline></video>
                     <canvas id="canvasElement"></canvas>
@@ -286,6 +334,15 @@
                     <h3>Captured Photo</h3>
                     <img id="capturedImage" style="display: none;">
                 </div>
+                
+                <div class="download-section" id="downloadSection">
+                    <h3>Save Results</h3>
+                    <p>Enter client name to download the photo and measurements:</p>
+                    <div class="download-controls">
+                        <input type="text" id="clientName" class="client-name-input" placeholder="Enter Client Name..">
+                        <button id="downloadBtn">Download</button>
+                    </div>
+                </div>
             </div>
             
             <div class="results-section">
@@ -305,12 +362,14 @@
             <h2><strong>Yo Nigga, This How You Use It!</strong></h2>
             <ol>
                 <li>Allow camera access on the browser, I wont spy on you</li>
+                <li>Select front or back camera (mobile only)</li>
                 <li>Enter your actual height for calibration "Not compulsory" </li>
                 <li>Stand about 2 meters (6 feet) from the camera in a well-lit area</li>
                 <li>Make sure your full body is visible in the frame</li>
                 <li>Assume a T-pose (arms extended to the sides) for accurate measurements</li>
                 <li>Click "Start Measurement" to begin capturing</li>
                 <li>Click "Capture Photo" to take a snapshot with measurements</li>
+                <li>Enter client name and download the results</li>
                 <li>Viola! View your final results in the right panel</li>
                 <li>Boom! Boom!</li>
             </ol>
@@ -326,12 +385,18 @@
         const captureBtn = document.getElementById('captureBtn');
         const resetBtn = document.getElementById('resetBtn');
         const calibrateBtn = document.getElementById('calibrateBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
         const heightInput = document.getElementById('heightInput');
+        const clientNameInput = document.getElementById('clientName');
         const statusMessage = document.getElementById('statusMessage');
         const measurementList = document.getElementById('measurementList');
         const capturedImage = document.getElementById('capturedImage');
         const resultsDisplay = document.getElementById('resultsDisplay');
         const finalResults = document.getElementById('finalResults');
+        const downloadSection = document.getElementById('downloadSection');
+        const cameraSelection = document.getElementById('cameraSelection');
+        const frontCameraBtn = document.getElementById('frontCameraBtn');
+        const backCameraBtn = document.getElementById('backCameraBtn');
         
         // Pose estimation variables
         let pose = null;
@@ -340,7 +405,19 @@
         let calibrationFactor = 1;
         let measurements = {};
         let lastMeasurementTime = 0;
+        let currentStream = null;
+        let facingMode = 'user'; // Default to front camera
         const measurementInterval = 200; // Process measurements every 200ms for better performance
+        
+        // Check if device is mobile
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+        
+        // Show camera selection for mobile devices
+        if (isMobileDevice()) {
+            cameraSelection.style.display = 'flex';
+        }
         
         // Initialize MediaPipe Pose with optimized settings
         async function initPose() {
@@ -361,20 +438,46 @@
             
             pose.onResults(onPoseResults);
             
-            // Initialize camera with lower resolution for better performance
-            camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    const currentTime = Date.now();
-                    if (isMeasuring && currentTime - lastMeasurementTime > measurementInterval) {
-                        lastMeasurementTime = currentTime;
-                        await pose.send({image: videoElement});
-                    }
-                },
-                width: 480, // Reduced resolution for better performance
-                height: 640
-            });
+            // Initialize camera
+            await initCamera();
+        }
+        
+        // Initialize camera with specified facing mode
+        async function initCamera() {
+            // Stop any existing stream
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
             
-            await camera.start();
+            try {
+                // Get camera stream
+                currentStream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: facingMode,
+                        width: { ideal: 480 }, // Reduced resolution for better performance
+                        height: { ideal: 640 }
+                    }
+                });
+                
+                videoElement.srcObject = currentStream;
+                
+                // Initialize camera for pose detection
+                camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        const currentTime = Date.now();
+                        if (isMeasuring && currentTime - lastMeasurementTime > measurementInterval) {
+                            lastMeasurementTime = currentTime;
+                            await pose.send({image: videoElement});
+                        }
+                    }
+                });
+                
+                await camera.start();
+                statusMessage.textContent = "Camera's ready bruv! Click 'Start Measurement' to begin.";
+            } catch (error) {
+                console.error("Error accessing camera:", error);
+                statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
+            }
         }
         
         // Process pose results
@@ -513,10 +616,11 @@
             capturedImage.src = tempCanvas.toDataURL('image/png');
             capturedImage.style.display = 'block';
             
-            // Show final results
+            // Show final results and download section
             showFinalResults();
+            downloadSection.style.display = 'block';
             
-            statusMessage.textContent = "Photo captured! Check your results below.";
+            statusMessage.textContent = "Photo captured! Enter client name to download results.";
         }
         
         // Show final results in a formatted display
@@ -540,6 +644,44 @@
                 resultItem.appendChild(valueSpan);
                 finalResults.appendChild(resultItem);
             }
+        }
+        
+        // Download the captured image and measurements
+        function downloadResults() {
+            const clientName = clientNameInput.value.trim() || 'Client';
+            
+            // Create a temporary canvas for the downloadable image
+            const downloadCanvas = document.createElement('canvas');
+            downloadCanvas.width = canvasElement.width;
+            downloadCanvas.height = canvasElement.height + 100; // Extra space for text
+            const downloadCtx = downloadCanvas.getContext('2d');
+            
+            // Fill background
+            downloadCtx.fillStyle = 'white';
+            downloadCtx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
+            
+            // Draw the captured image
+            downloadCtx.drawImage(capturedImage, 0, 0, canvasElement.width, canvasElement.height);
+            
+            // Add client name and measurements
+            downloadCtx.fillStyle = '#2c3e50';
+            downloadCtx.font = 'bold 16px Arial';
+            downloadCtx.fillText(`Client: ${clientName}`, 10, canvasElement.height + 20);
+            
+            downloadCtx.font = '14px Arial';
+            let yPos = canvasElement.height + 40;
+            for (const [name, value] of Object.entries(measurements)) {
+                downloadCtx.fillText(`${name}: ${value.toFixed(1)} cm`, 10, yPos);
+                yPos += 20;
+            }
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.download = `${clientName}_body_measurements.png`;
+            link.href = downloadCanvas.toDataURL('image/png');
+            link.click();
+            
+            statusMessage.textContent = "Results downloaded successfully!";
         }
         
         // Calibrate based on user's actual height
@@ -576,6 +718,7 @@
             updateMeasurementDisplay();
             capturedImage.style.display = 'none';
             resultsDisplay.style.display = 'none';
+            downloadSection.style.display = 'none';
             statusMessage.textContent = "Measurement reset. Click 'Start Measurement' to begin again.";
             startBtn.disabled = false;
             captureBtn.disabled = true;
@@ -583,10 +726,27 @@
         
         calibrateBtn.addEventListener('click', calibrate);
         
+        downloadBtn.addEventListener('click', downloadResults);
+        
+        frontCameraBtn.addEventListener('click', () => {
+            facingMode = 'user';
+            frontCameraBtn.classList.add('active');
+            backCameraBtn.classList.remove('active');
+            initCamera();
+        });
+        
+        backCameraBtn.addEventListener('click', () => {
+            facingMode = 'environment';
+            backCameraBtn.classList.add('active');
+            frontCameraBtn.classList.remove('active');
+            initCamera();
+        });
+        
+        // Set initial active camera button
+        frontCameraBtn.classList.add('active');
+        
         // Initialize the application
-        initPose().then(() => {
-            statusMessage.textContent = "Camera ready! Click 'Start Measurement' to begin.";
-        }).catch(error => {
+        initPose().catch(error => {
             console.error("Error initializing pose detection:", error);
             statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
         });
@@ -598,5 +758,4 @@
         });
     </script>
 </body>
-
 </html>
