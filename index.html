@@ -84,6 +84,7 @@
         #videoElement {
             width: 100%;
             background: #000;
+            transform: scaleX(-1); /* Mirror the video for more natural feel */
         }
         
         #canvasElement {
@@ -92,6 +93,7 @@
             left: 0;
             width: 100%;
             height: 100%;
+            transform: scaleX(-1); /* Mirror the canvas to match video */
         }
         
         .video-container {
@@ -304,7 +306,7 @@
             <div class="camera-section">
                 <h2 class="section-title">Camera Feed</h2>
                 
-                <div class="camera-selection" id="cameraSelection" style="display: none;">
+                <div class="camera-selection" id="cameraSelection">
                     <button class="camera-btn" id="frontCameraBtn">Front Camera</button>
                     <button class="camera-btn" id="backCameraBtn">Back Camera</button>
                 </div>
@@ -339,7 +341,7 @@
                     <h3>Save Results</h3>
                     <p>Enter client name to download the photo and measurements:</p>
                     <div class="download-controls">
-                        <input type="text" id="clientName" class="client-name-input" placeholder="Enter Client Name..">
+                        <input type="text" id="clientName" class="client-name-input" placeholder="Client Name">
                         <button id="downloadBtn">Download</button>
                     </div>
                 </div>
@@ -362,7 +364,7 @@
             <h2><strong>Yo Nigga, This How You Use It!</strong></h2>
             <ol>
                 <li>Allow camera access on the browser, I wont spy on you</li>
-                <li>Select front or back camera (mobile only)</li>
+                <li>Select front or back camera</li>
                 <li>Enter your actual height for calibration "Not compulsory" </li>
                 <li>Stand about 2 meters (6 feet) from the camera in a well-lit area</li>
                 <li>Make sure your full body is visible in the frame</li>
@@ -400,24 +402,13 @@
         
         // Pose estimation variables
         let pose = null;
-        let camera = null;
         let isMeasuring = false;
         let calibrationFactor = 1;
         let measurements = {};
         let lastMeasurementTime = 0;
         let currentStream = null;
-        let facingMode = 'user'; // Default to front camera
+        let currentFacingMode = 'user'; // Default to front camera
         const measurementInterval = 200; // Process measurements every 200ms for better performance
-        
-        // Check if device is mobile
-        function isMobileDevice() {
-            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        }
-        
-        // Show camera selection for mobile devices
-        if (isMobileDevice()) {
-            cameraSelection.style.display = 'flex';
-        }
         
         // Initialize MediaPipe Pose with optimized settings
         async function initPose() {
@@ -453,7 +444,7 @@
                 // Get camera stream
                 currentStream = await navigator.mediaDevices.getUserMedia({
                     video: { 
-                        facingMode: facingMode,
+                        facingMode: currentFacingMode,
                         width: { ideal: 480 }, // Reduced resolution for better performance
                         height: { ideal: 640 }
                     }
@@ -461,22 +452,50 @@
                 
                 videoElement.srcObject = currentStream;
                 
-                // Initialize camera for pose detection
-                camera = new Camera(videoElement, {
-                    onFrame: async () => {
-                        const currentTime = Date.now();
-                        if (isMeasuring && currentTime - lastMeasurementTime > measurementInterval) {
-                            lastMeasurementTime = currentTime;
-                            await pose.send({image: videoElement});
-                        }
-                    }
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => {
+                        resolve();
+                    };
                 });
                 
-                await camera.start();
-                statusMessage.textContent = "Camera's ready bruv! Click 'Start Measurement' to begin.";
+                // Set canvas size to match video
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+                
+                statusMessage.textContent = "Camera ready! Click 'Start Measurement' to begin.";
+                
+                // Start pose detection if measuring
+                if (isMeasuring) {
+                    startPoseDetection();
+                }
             } catch (error) {
                 console.error("Error accessing camera:", error);
                 statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
+            }
+        }
+        
+        // Start pose detection
+        function startPoseDetection() {
+            if (!pose) return;
+            
+            // Clear any existing interval
+            if (window.poseDetectionInterval) {
+                clearInterval(window.poseDetectionInterval);
+            }
+            
+            // Set up pose detection interval
+            window.poseDetectionInterval = setInterval(async () => {
+                if (isMeasuring && videoElement.readyState >= 2) {
+                    await pose.send({image: videoElement});
+                }
+            }, measurementInterval);
+        }
+        
+        // Stop pose detection
+        function stopPoseDetection() {
+            if (window.poseDetectionInterval) {
+                clearInterval(window.poseDetectionInterval);
             }
         }
         
@@ -484,7 +503,11 @@
         function onPoseResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw the video frame (mirrored)
+            canvasCtx.scale(-1, 1);
+            canvasCtx.drawImage(results.image, -canvasElement.width, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.scale(-1, 1); // Reset scale
             
             if (results.poseLandmarks) {
                 // Draw pose landmarks with simplified rendering for performance
@@ -595,10 +618,10 @@
             tempCanvas.height = canvasElement.height;
             const tempCtx = tempCanvas.getContext('2d');
             
-            // Draw the video frame
+            // Draw the video frame (unmirrored for saved image)
             tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
             
-            // Draw the pose landmarks
+            // Draw the pose landmarks (unmirrored)
             tempCtx.drawImage(canvasElement, 0, 0);
             
             // Add measurement text
@@ -702,12 +725,29 @@
             }
         }
         
+        // Switch to front camera
+        async function switchToFrontCamera() {
+            currentFacingMode = 'user';
+            frontCameraBtn.classList.add('active');
+            backCameraBtn.classList.remove('active');
+            await initCamera();
+        }
+        
+        // Switch to back camera
+        async function switchToBackCamera() {
+            currentFacingMode = 'environment';
+            backCameraBtn.classList.add('active');
+            frontCameraBtn.classList.remove('active');
+            await initCamera();
+        }
+        
         // Event listeners
         startBtn.addEventListener('click', () => {
             isMeasuring = true;
             statusMessage.textContent = "Measuring... Click 'Capture Photo' when ready";
             startBtn.disabled = true;
             captureBtn.disabled = false;
+            startPoseDetection();
         });
         
         captureBtn.addEventListener('click', capturePhoto);
@@ -722,25 +762,16 @@
             statusMessage.textContent = "Measurement reset. Click 'Start Measurement' to begin again.";
             startBtn.disabled = false;
             captureBtn.disabled = true;
+            stopPoseDetection();
         });
         
         calibrateBtn.addEventListener('click', calibrate);
         
         downloadBtn.addEventListener('click', downloadResults);
         
-        frontCameraBtn.addEventListener('click', () => {
-            facingMode = 'user';
-            frontCameraBtn.classList.add('active');
-            backCameraBtn.classList.remove('active');
-            initCamera();
-        });
+        frontCameraBtn.addEventListener('click', switchToFrontCamera);
         
-        backCameraBtn.addEventListener('click', () => {
-            facingMode = 'environment';
-            backCameraBtn.classList.add('active');
-            frontCameraBtn.classList.remove('active');
-            initCamera();
-        });
+        backCameraBtn.addEventListener('click', switchToBackCamera);
         
         // Set initial active camera button
         frontCameraBtn.classList.add('active');
@@ -749,12 +780,6 @@
         initPose().catch(error => {
             console.error("Error initializing pose detection:", error);
             statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
-        });
-        
-        // Adjust canvas size to match video
-        videoElement.addEventListener('loadedmetadata', () => {
-            canvasElement.width = videoElement.videoWidth;
-            canvasElement.height = videoElement.videoHeight;
         });
     </script>
 </body>
