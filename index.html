@@ -84,6 +84,7 @@
         #videoElement {
             width: 100%;
             background: #000;
+            transform: scaleX(-1); /* Mirror the video for natural view */
         }
         
         #canvasElement {
@@ -92,12 +93,14 @@
             left: 0;
             width: 100%;
             height: 100%;
+            transform: scaleX(-1); /* Mirror the canvas to match video */
         }
         
         .video-container {
             position: relative;
             width: 100%;
             margin-bottom: 15px;
+            overflow: hidden;
         }
         
         .controls {
@@ -290,6 +293,10 @@
             .camera-btn {
                 width: 100%;
             }
+            
+            .camera-selection {
+                display: none; /* Hide camera selection on mobile */
+            }
         }
     </style>
 </head>
@@ -304,7 +311,7 @@
             <div class="camera-section">
                 <h2 class="section-title">Camera Feed</h2>
                 
-                <div class="camera-selection" id="cameraSelection" style="display: none;">
+                <div class="camera-selection" id="cameraSelection">
                     <button class="camera-btn" id="frontCameraBtn">Front Camera</button>
                     <button class="camera-btn" id="backCameraBtn">Back Camera</button>
                 </div>
@@ -362,7 +369,7 @@
             <h2><strong>Yo Nigga, This How You Use It!</strong></h2>
             <ol>
                 <li>Allow camera access on the browser, I wont spy on you</li>
-                <li>Select front or back camera (mobile only)</li>
+                <li>Select front or back camera (desktop only)</li>
                 <li>Enter your actual height for calibration "Not compulsory" </li>
                 <li>Stand about 2 meters (6 feet) from the camera in a well-lit area</li>
                 <li>Make sure your full body is visible in the frame</li>
@@ -406,7 +413,7 @@
         let measurements = {};
         let lastMeasurementTime = 0;
         let currentStream = null;
-        let facingMode = 'user'; // Default to front camera
+        let facingMode = 'environment'; // Default to back camera for mobile
         const measurementInterval = 200; // Process measurements every 200ms for better performance
         
         // Check if device is mobile
@@ -414,9 +421,16 @@
             return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         }
         
-        // Show camera selection for mobile devices
-        if (isMobileDevice()) {
+        // Show camera selection for desktop devices only
+        if (!isMobileDevice()) {
             cameraSelection.style.display = 'flex';
+            // Default to front camera on desktop
+            facingMode = 'user';
+            frontCameraBtn.classList.add('active');
+        } else {
+            // Mobile devices use back camera only
+            facingMode = 'environment';
+            cameraSelection.style.display = 'none';
         }
         
         // Initialize MediaPipe Pose with optimized settings
@@ -494,6 +508,18 @@
             } catch (error) {
                 console.error("Error accessing camera:", error);
                 statusMessage.textContent = "Error: Could not access camera. Please check permissions.";
+                
+                // Try fallback to any available camera
+                if (error.name === 'OverconstrainedError') {
+                    statusMessage.textContent = "Requested camera not available. Trying any available camera...";
+                    try {
+                        facingMode = { exact: facingMode }; // Remove constraint
+                        await initCamera();
+                    } catch (fallbackError) {
+                        console.error("Fallback camera error:", fallbackError);
+                        statusMessage.textContent = "Error: Could not access any camera. Please check permissions.";
+                    }
+                }
             }
         }
         
@@ -501,6 +527,8 @@
         function onPoseResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw the video frame (already mirrored via CSS)
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
             
             if (results.poseLandmarks) {
@@ -612,11 +640,19 @@
             tempCanvas.height = canvasElement.height;
             const tempCtx = tempCanvas.getContext('2d');
             
-            // Draw the video frame
+            // Draw the video frame (not mirrored for final image)
+            tempCtx.save();
+            tempCtx.translate(tempCanvas.width, 0);
+            tempCtx.scale(-1, 1);
             tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.restore();
             
-            // Draw the pose landmarks
+            // Draw the pose landmarks (not mirrored for final image)
+            tempCtx.save();
+            tempCtx.translate(tempCanvas.width, 0);
+            tempCtx.scale(-1, 1);
             tempCtx.drawImage(canvasElement, 0, 0);
+            tempCtx.restore();
             
             // Add measurement text
             tempCtx.font = '14px Arial';
@@ -677,7 +713,7 @@
             downloadCtx.fillStyle = 'white';
             downloadCtx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
             
-            // Draw the captured image
+            // Draw the captured image (not mirrored for download)
             downloadCtx.drawImage(capturedImage, 0, 0, canvasElement.width, canvasElement.height);
             
             // Add client name and measurements
@@ -719,8 +755,10 @@
             }
         }
         
-        // Switch camera function
+        // Switch camera function (desktop only)
         async function switchCamera(newFacingMode) {
+            if (isMobileDevice()) return; // Skip on mobile
+            
             facingMode = newFacingMode;
             
             // Update UI
@@ -776,9 +814,6 @@
         backCameraBtn.addEventListener('click', () => {
             switchCamera('environment');
         });
-        
-        // Set initial active camera button
-        frontCameraBtn.classList.add('active');
         
         // Initialize the application
         initPose().catch(error => {
